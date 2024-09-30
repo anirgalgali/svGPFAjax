@@ -4,8 +4,9 @@ import jax
 def truncate_and_sum(A, v):
     # A has shape (P, K)
     # v is a vector of length P with indices indicating where to truncate
-    _, K = A.shape
     # jax.debug.print("A={}",A)
+    _, K = A.shape
+    
     # Create a mask where for each row i, only columns up to v[i] are included
     mask = jnp.arange(K) < v[:, None]  # Broadcasting over rows to create the mask
     # jax.debug.print("v={}",v)

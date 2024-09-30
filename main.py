@@ -16,6 +16,7 @@ import random
 import json
 import sys
 import argparse
+import pprint
 
 def get_gpu_memory():
     print(sp.check_output("nvidia-smi").decode('ascii'))
@@ -99,36 +100,14 @@ def subset_trials_ids_data(selected_trials_ids, trials_ids, spikes_times,
     return spikes_times_subset, trials_start_times_subset, trials_end_times_subset
 
 def subset_clusters_ids_data(selected_clusters_ids, clusters_ids,
-                             spikes_times):
+                             spikes_times, unit_probes_index):
     indices = np.nonzero(np.in1d(clusters_ids, selected_clusters_ids))[0]
     n_trials = len(spikes_times)
     spikes_times_subset = [[spikes_times[r][i] for i in indices]
                            for r in range(n_trials)]
+    unit_probes_subset = [unit_probes_index[i] for i in indices]
 
-    return spikes_times_subset
-
-def removeUnitsWithLessTrialAveragedFiringRateThanThr(
-        spikes_times, neurons_indices, trials_durations,
-        min_neuron_trials_avg_firing_rate):
-    
-    n_neurons = len(spikes_times[0])
-    n_trials = len(spikes_times)
-
-    neurons_indices_to_keep = []
-    for n in range(n_neurons):
-        trials_firing_rates = np.array([np.nan for r in range(n_trials)])
-        for r in range(n_trials):
-            spikes_times_rn = spikes_times[r][n]
-            trials_firing_rates[r] = len(spikes_times_rn)/trials_durations[r]
-        trial_avg_firing_rate = trials_firing_rates.mean()
-        if trial_avg_firing_rate > min_neuron_trials_avg_firing_rate:
-            neurons_indices_to_keep.append(n)
-    filtered_spikes_times = [[spikes_times[r][n]
-                              for n in neurons_indices_to_keep]
-                             for r in range(n_trials)]
-    filtered_neurons_indices = [neurons_indices[n]
-                                for n in neurons_indices_to_keep]
-    return filtered_spikes_times, filtered_neurons_indices
+    return spikes_times_subset, unit_probes_subset
 
 
 def process_data_for_fit(data_filename, data_filter_pars):
@@ -148,13 +127,12 @@ def process_data_for_fit(data_filename, data_filter_pars):
 
 
     if "clusters_ids_filename" in data_filter_pars.keys():
-        clusters_ids = np.arange(n_neurons)
         selected_clusters_ids = np.genfromtxt(data_filter_pars["clusters_ids_filename"],dtype=np.uint64)
         clusters_ids = np.arange(n_neurons)
-        spikes_times = subset_clusters_ids_data(
+        spikes_times, unit_probes_index = subset_clusters_ids_data(
             selected_clusters_ids=selected_clusters_ids,
             clusters_ids=clusters_ids,
-            spikes_times=spikes_times)
+            spikes_times=spikes_times, unit_probes_index=unit_probes_index)
 
     if "trials_ids_filename" in data_filter_pars.keys():
         selected_trials_ids = np.genfromtxt(data_filter_pars["trials_ids_filename"] , dtype=np.uint64)
@@ -166,14 +144,6 @@ def process_data_for_fit(data_filename, data_filter_pars):
                 trials_start_times=trials_start_times,
                 trials_end_times=trials_end_times)
 
-    trials_durations = [trials_end_times[i] - trials_start_times[i]
-                        for i in range(n_trials)]
-
-
-    spikes_times, neurons_indices = removeUnitsWithLessTrialAveragedFiringRateThanThr(
-            spikes_times=spikes_times, neurons_indices=neurons_indices,
-            trials_durations=trials_durations,
-            min_neuron_trials_avg_firing_rate=data_filter_pars["min_neuron_trials_avg_firing_rate"])
     
     if data_filter_pars["data_fraction_fit"] < 1.0:
         selected_inds = np.random.choice(len(spikes_times),size = int(np.round(data_filter_pars["data_fraction_fit"]*len(spikes_times))),replace = False)
@@ -189,9 +159,9 @@ def process_data_for_fit(data_filename, data_filter_pars):
     
     n_trials = len(spikes_times)
     n_neurons = len(spikes_times[0])
-    unit_probes_index = unit_probes_index[neurons_indices].astype(np.int32)
+
     if "clusters_ids_filename" in data_filter_pars.keys():
-        clusters_ids = [clusters_ids[i] for i in neurons_indices]
+        clusters_ids = selected_clusters_ids
     else:
         clusters_ids = neurons_indices
 
@@ -209,9 +179,6 @@ def main(argv):
                         action="store_true")
     
     parser.add_argument("--data_fraction_fit", help ="fraction of data to fit",
-                    type=float, default = 1.0)
-    
-    parser.add_argument("--min_neuron_trials_avg_firing_rate", help ="min avg. firing rate threshold for neuron selection",
                     type=float, default = 1.0)
     
     parser.add_argument("--n_latents_1", help="number of latent processes in area 1",
@@ -232,10 +199,17 @@ def main(argv):
                         type=str,
                         default="physical_switches_static_triplets")
     
-    parser.add_argument("--max_em_iter", help = "maximum number of EM iterations",type=int,default=20000)
+    parser.add_argument("--chunk_size",help = "indicates which datafile with chunk size property to analyze",
+                        type = int, default = 1)
+    
+    parser.add_argument("--clusters_ids_filename", help="clusters ids filename",
+                        type=str, default="../svGPFA_rivarly/init/neuronIDs_thresholded_common_union.csv")
+    
+    parser.add_argument("--max_em_iter", help = "maximum number of EM iterations",type=int,default=100000)
 
     parser.add_argument("--scale_fac", help = "scaling factor for kernel length scale (usually between 0.80 and 1.60)",type=float,default=1.0)
 
+    parser.add_argument("--seed", help = "random seed for fit", type = int, default = 0)
 
     parsed, unknown = parser.parse_known_args()
     for arg in unknown:
@@ -244,12 +218,17 @@ def main(argv):
             parser.add_argument(arg.split('=')[0], type=str)
     args = parser.parse_args()
 
-    seed = np.random.randint(low = 0, high = 1000000)
+    if args.seed == 0:
+        seed = np.random.randint(low = 0, high = 1000000)
+    else:
+        seed = args.seed
+
     key = jax.random.PRNGKey(seed)
+    save_file_id = random.randint(0, 10**8)
 
-
-    buffer_size = 20
-    tolerance = 1e-3
+    buffer_size = 10
+    tolerance = 1e-1
+    
     threshold_count_iter = 5
     
     n_latents = [args.n_latents_1, args.n_latents_2]
@@ -260,18 +239,25 @@ def main(argv):
                     jit = True
                     )
 
-    data_filename = f'../svGPFA_rivarly/data/epochedSpikes_Alfie_231024_200742_{args.data_filename_pattern:s}.pickle'
-    save_file_id = random.randint(0, 10**8)
-    model_save_filename = f'./results/{save_file_id}_seed={seed}_{args.data_filename_pattern:s}.pickle'
-    model_metadata_filename = f'./results/{save_file_id}_seed={seed}_{args.data_filename_pattern:s}.json'
+    unit_selection_strategy = os.path.splitext(os.path.basename(args.clusters_ids_filename))[0]
+    unit_selection_strategy = unit_selection_strategy.split('_')[-1]
+
+    if args.chunk_size != 1:
+        data_filename = f'../svGPFA_rivarly/data/epochedSpikes_Alfie_231024_200742_{args.data_filename_pattern:s}_chunksize={str(args.chunk_size)}.pickle'
+        model_save_filename = f'./results/{save_file_id}_seed={seed}_{unit_selection_strategy}_{args.data_filename_pattern:s}_chunksize={str(args.chunk_size)}.pickle'
+        model_metadata_filename = f'./results/{save_file_id}_seed={seed}_{unit_selection_strategy}_{args.data_filename_pattern:s}_chunksize={str(args.chunk_size)}.json'
+    else:
+        data_filename = f'../svGPFA_rivarly/data/epochedSpikes_Alfie_231024_200742_{args.data_filename_pattern:s}.pickle'
+        model_save_filename = f'./results/{save_file_id}_seed={seed}_{unit_selection_strategy}_{args.data_filename_pattern:s}.pickle'
+        model_metadata_filename = f'./results/{save_file_id}_seed={seed}_{unit_selection_strategy}_{args.data_filename_pattern:s}.json'
     
     data_filter_params = dict()
-    data_filter_params["min_neuron_trials_avg_firing_rate"] = args.min_neuron_trials_avg_firing_rate
     data_filter_params["data_fraction_fit"] = args.data_fraction_fit
+    data_filter_params["clusters_ids_filename"] = args.clusters_ids_filename
 
     # get spike_times
     spikes_times_array, trials_start_times, trials_end_times, trunc_indices, unit_probes_index, trials_ids, clusters_ids = process_data_for_fit(data_filename, data_filter_params)
-    
+
     if jax.default_backend() == "gpu":
         get_gpu_memory()
 
@@ -299,7 +285,6 @@ def main(argv):
 
     else:
         params0['C'], params0['d'], dummy_dict, key = initialize_observationmodel_params(key,sum(n_neurons),n_total_latents)
-
 
     if args.do_fit_blocked:
         if args.do_fit_ind_points_locs:
@@ -335,13 +320,17 @@ def main(argv):
         lb = -optim_state.value.item()
         lower_bound_hist.append(lb)
         elapsed_time_hist.append(time.time() - start_time)
-        print(f"Iteration {step}: {lb}")
+
+        if step < buffer_size:
+            print(f"Iteration {step} - Lower Bound: {lb}")
 
         if step >= buffer_size:
-
+            
             running_mean_new = sum(lower_bound_hist[-buffer_size:])/buffer_size
+            delta = np.abs(running_mean_new - running_mean)
+            print(f"Iteration {step} - Lower Bound: {lb}, Mov. Avg : {running_mean_new}, delta: {delta}")  
 
-            if np.abs(running_mean_new - running_mean) <= tolerance:
+            if delta <= tolerance:
                 stop_counter += 1
                
             else:
@@ -352,8 +341,6 @@ def main(argv):
             if stop_counter >= threshold_count_iter:
                 print(f"Terminating after {step} iterations due to no change in ELBO.")
                 break
-
-
 
         if step % 500 == 0:
             if jax.default_backend() == "gpu":
@@ -370,7 +357,7 @@ def main(argv):
     # save estimated config
     estim_res_config = {
         "trials_ids": trials_ids.tolist(),
-        "neurons_indices": clusters_ids,
+        "neurons_indices": clusters_ids.tolist(),
         "do_fit_ind_points_locs": args.do_fit_ind_points_locs,
         "do_fit_blocked": args.do_fit_blocked,
         "n_latents_1": args.n_latents_1,
@@ -379,7 +366,6 @@ def main(argv):
         "common_n_ind_points": args.n_ind_points,
         "neuron_count_per_area":n_neurons.tolist(),
         "max_trial_duration": max_trial_length,
-        "min_neuron_trials_avg_firing_rate": data_filter_params["min_neuron_trials_avg_firing_rate"],
         "epoched_spikes_times_filename": data_filename,
         "data_fraction_fit": data_filter_params["data_fraction_fit"],
         "max_em_iter": args.max_em_iter,

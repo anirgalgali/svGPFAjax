@@ -19,4 +19,5 @@ def precompute_Kzz(ind_points_locs, kernel_param):
 @partial(vmap, in_axes = (None,0,0))
 def precompute_Ktz(times, ind_points_locs, kernel_param):
     Ktz = vmapped_kernel(times, ind_points_locs, kernel_param)
+    # jax.debug.print("Ktz={}",Ktz.shape)
     return Ktz
