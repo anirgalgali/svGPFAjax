@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 import jax
-from latents import compute_latent_means, compute_latent_variances
+from src.latents import compute_latent_means, compute_latent_variances
 
 @jax.jit
 def compute_obs_means(ind_points_locs, kernel_param, meanFactor, times, loadings, offset):

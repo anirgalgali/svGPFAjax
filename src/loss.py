@@ -1,12 +1,11 @@
 import jax.numpy as jnp
 import jax
-from kernel import precompute_Kzz
-from observations import compute_obs_means
-from observations import compute_obs_vars
-from likelihood import truncate_and_sum, compute_ell1
-from kldivergence import vmap_kl_latents
+from src.kernel import precompute_Kzz
+from src.observations import compute_obs_means,compute_obs_vars
+from src.likelihood import truncate_and_sum, compute_ell1
+from src.kldivergence import vmap_kl_latents
+from src.cholesky import build_covs_from_cholvecs
 from functools import partial
-from cholesky import build_covs_from_cholvecs
 import pprint
 
 @partial(jax.vmap, in_axes = (None,1),out_axes = 1)

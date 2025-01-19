@@ -3,9 +3,9 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = 'false'
 import jax.numpy as jnp
 import numpy as np
 import jax
-from loss import objective_fn, objective_fn_twoarea
-from cholesky import vmapped_lower_triangular
-from quadrature import getLegQuadPointsAndWeights
+from src.loss import objective_fn, objective_fn_twoarea
+from src.cholesky import vmapped_lower_triangular
+from src.quadrature import getLegQuadPointsAndWeights
 import jaxopt
 import time
 import matplotlib.pyplot as plt

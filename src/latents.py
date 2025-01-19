@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 from jax import vmap
 from functools import partial
-from kernel import precompute_Ktz
+from src.kernel import precompute_Ktz
 import jax
 
 @jax.jit

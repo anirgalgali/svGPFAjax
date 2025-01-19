@@ -2,3 +2,4 @@ figures/
 results/
 __pycache__/
 sandbox/
+*.egg-info
